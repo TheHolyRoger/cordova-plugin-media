@@ -146,6 +146,17 @@ public class AudioHandler extends CordovaPlugin {
             }
            this.startPlayingAudio(args.getString(0), FileHelper.stripFileProtocol(fileUriStr),playAudioWhenScreenIsLocked);
         }
+        else if (action.equals("startPlayingAudioInBackground")) {
+            String target = args.getString(1);
+            String fileUriStr;
+            try {
+                Uri targetUri = resourceApi.remapUri(Uri.parse(target));
+                fileUriStr = targetUri.toString();
+            } catch (IllegalArgumentException e) {
+                fileUriStr = target;
+            }
+            this.startPlayingAudioInBackground(args.getString(0), FileHelper.stripFileProtocol(fileUriStr));
+        }
         else if (action.equals("seekToAudio")) {
             this.seekToAudio(args.getString(0), args.getInt(1));
         }
@@ -333,6 +344,14 @@ public class AudioHandler extends CordovaPlugin {
         AudioPlayer audio = getOrCreatePlayer(id, file, playAudioWhenScreenIsLocked);
         audio.startPlaying(file);
         getAudioFocus();
+    }
+
+    public void startPlayingAudioInBackground(final String id, final String file) {
+      cordova.getThreadPool().execute(new Runnable() {
+        public void run() {
+          startPlayingAudio(id, file);
+        }
+      });
     }
 
     /**
