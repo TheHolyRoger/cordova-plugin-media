@@ -349,7 +349,7 @@ public class AudioHandler extends CordovaPlugin {
     public void startPlayingAudioInBackground(final String id, final String file) {
       cordova.getThreadPool().execute(new Runnable() {
         public void run() {
-          startPlayingAudio(id, file);
+          startPlayingAudio(id, file, true);
         }
       });
     }
