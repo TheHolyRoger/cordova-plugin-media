@@ -37,11 +37,16 @@ var mediaObjects = {};
  * @param errorCallback         The callback to be called if there is an error.
  *                                  errorCallback(int errorCode) - OPTIONAL
  * @param statusCallback        The callback to be called when media status has changed.
+ *                                statusCallback(int statusCode) - OPTIONAL
+ *
+ * @param durationUpdateCallback  The callback to be called when the duration updates.
+ *                                durationUpdateCallback(float duration) - OPTIONAL
+ *
  *                                  statusCallback(int statusCode) - OPTIONAL
  * @param infoCallback          The callback to be called when playback information is received.
  *                                  statusCallback(int infoCode) - OPTIONAL
  */
-var Media = function (src, successCallback, errorCallback, statusCallback, infoCallback) {
+var Media = function (src, successCallback, errorCallback, statusCallback, durationUpdateCallback, infoCallback) {
     argscheck.checkArgs('sFFF', 'Media', arguments);
     this.id = utils.createUUID();
     mediaObjects[this.id] = this;
@@ -49,6 +54,7 @@ var Media = function (src, successCallback, errorCallback, statusCallback, infoC
     this.successCallback = successCallback;
     this.errorCallback = errorCallback;
     this.statusCallback = statusCallback;
+    this.durationUpdateCallback = durationUpdateCallback;
     this.infoCallback = infoCallback;
     this._duration = -1;
     this._position = -1;
@@ -214,7 +220,7 @@ Media.prototype.setVolume = function (volume) {
  * Adjust the playback rate.
  */
 Media.prototype.setRate = function (rate) {
-    if (cordova.platformId === 'ios') {
+    if (cordova.platformId === 'ios' || cordova.platformId === 'android') {
         exec(null, null, 'Media', 'setRate', [this.id, rate]);
     } else {
         console.warn('media.setRate method is currently not supported for', cordova.platformId, 'platform.');
@@ -261,6 +267,9 @@ Media.onStatus = function (id, msgType, value) {
             break;
         case Media.MEDIA_DURATION:
             media._duration = value;
+            if (media.durationUpdateCallback) {
+                media.durationUpdateCallback(value);
+            }
             break;
         case Media.MEDIA_ERROR:
             if (media.errorCallback) {
@@ -296,7 +305,7 @@ function onMessageFromNative (msg) {
     }
 }
 
-if (cordova.platformId === 'android' || cordova.platformId === 'amazon-fireos' || cordova.platformId === 'windowsphone') {
+if (cordova.platformId === 'android') {
     var channel = require('cordova/channel');
 
     channel.createSticky('onMediaPluginReady');

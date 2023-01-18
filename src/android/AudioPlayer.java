@@ -39,6 +39,7 @@ import android.media.MediaPlayer.OnInfoListener;
 import android.media.MediaPlayer.OnPreparedListener;
 import android.media.MediaRecorder;
 import android.os.Environment;
+import android.os.Build;
 
 /**
  * This class implements the audio playback and recording capabilities used by Cordova.
@@ -100,6 +101,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
     private MediaPlayer player = null;      // Audio player object
     private boolean prepareOnly = true;     // playback after file prepare flag
     private int seekOnPrepared = 0;     // seek to this location once media is prepared
+    private float setRateOnPrepared = -1;
 
     private boolean playAudioWhenScreenIsLocked = true; // If set to false the playback will be paused when app is paused
     
@@ -173,10 +175,11 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
      * @param file              The name of the file
      */
     public void startRecording(String file) {
+        String errorMessage;
         switch (this.mode) {
         case PLAY:
-            LOG.d(LOG_TAG, "AudioPlayer Error: Can't record in play mode.");
-            sendErrorStatus(MEDIA_ERR_ABORTED);
+            errorMessage = "AudioPlayer Error: Can't record in play mode.";
+            sendErrorStatus(MEDIA_ERR_ABORTED, errorMessage);
             break;
         case NONE:
             this.audioFile = file;
@@ -197,11 +200,11 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
                 e.printStackTrace();
             }
 
-            sendErrorStatus(MEDIA_ERR_ABORTED);
+            sendErrorStatus(MEDIA_ERR_ABORTED, null);
             break;
         case RECORD:
-            LOG.d(LOG_TAG, "AudioPlayer Error: Already recording.");
-            sendErrorStatus(MEDIA_ERR_ABORTED);
+            errorMessage = "AudioPlayer Error: Already recording.";
+            sendErrorStatus(MEDIA_ERR_ABORTED, errorMessage);
         }
     }
 
@@ -380,7 +383,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
                 this.player.seekTo(milliseconds);
             }
             LOG.d(LOG_TAG, "Send a onStatus update for the new seek");
-            sendStatusChange(MEDIA_POSITION, null, (milliseconds / 1000.0f));
+            sendStatusChange(MEDIA_POSITION, null, (milliseconds / 1000.0f), null);
         }
         else {
             this.seekOnPrepared = milliseconds;
@@ -398,8 +401,8 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
             this.setState(STATE.MEDIA_PAUSED);
         }
         else {
-            LOG.d(LOG_TAG, "AudioPlayer Error: pausePlaying() called during invalid state: " + this.state.ordinal());
-            sendErrorStatus(MEDIA_ERR_NONE_ACTIVE);
+            String errorMessage = "AudioPlayer Error: pausePlaying() called during invalid state: " + this.state.ordinal();
+            sendErrorStatus(MEDIA_ERR_NONE_ACTIVE, errorMessage);
         }
     }
 
@@ -414,8 +417,8 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
             this.setState(STATE.MEDIA_STOPPED);
         }
         else {
-            LOG.d(LOG_TAG, "AudioPlayer Error: stopPlaying() called during invalid state: " + this.state.ordinal());
-            sendErrorStatus(MEDIA_ERR_NONE_ACTIVE);
+            String errorMessage = "AudioPlayer Error: stopPlaying() called during invalid state: " + this.state.ordinal();
+            sendErrorStatus(MEDIA_ERR_NONE_ACTIVE, errorMessage);
         }
     }
 
@@ -444,7 +447,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
     public long getCurrentPosition() {
         if ((this.state == STATE.MEDIA_RUNNING) || (this.state == STATE.MEDIA_PAUSED)) {
             int curPos = this.player.getCurrentPosition();
-            sendStatusChange(MEDIA_POSITION, null, (curPos / 1000.0f));
+            sendStatusChange(MEDIA_POSITION, null, (curPos / 1000.0f), null);
             return curPos;
         }
         else {
@@ -511,6 +514,9 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
         this.player.setOnInfoListener(this);
         // seek to any location received while not prepared
         this.seekToPlaying(this.seekOnPrepared);
+        // apply any playback rate received while not prepared
+        if (setRateOnPrepared >= 0)
+            this.player.setPlaybackParams (this.player.getPlaybackParams().setSpeed(setRateOnPrepared));
         // If start playing after prepared
         if (!this.prepareOnly) {
             this.player.start();
@@ -525,7 +531,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
         this.prepareOnly = true;
 
         // Send status notification to JavaScript
-        sendStatusChange(MEDIA_DURATION, null, this.duration);
+        sendStatusChange(MEDIA_DURATION, null, this.duration, null);
     }
 
     /**
@@ -546,14 +552,14 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
      * @param arg2              an extra code, specific to the error.
      */
     public boolean onError(MediaPlayer player, int arg1, int arg2) {
-        LOG.d(LOG_TAG, "AudioPlayer.onError(" + arg1 + ", " + arg2 + ")");
+        String errorMessage = "AudioPlayer.onError(" + arg1 + ", " + arg2 + ")";
 
         // we don't want to send success callback
         // so we don't call setState() here
         this.state = STATE.MEDIA_STOPPED;
         this.destroy();
         // Send error notification to JavaScript
-        sendErrorStatus(arg1);
+        sendErrorStatus(arg1, errorMessage);
 
         return false;
     }
@@ -579,7 +585,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
      */
     private void setState(STATE state) {
         if (this.state != state) {
-            sendStatusChange(MEDIA_STATE, null, (float)state.ordinal());
+            sendStatusChange(MEDIA_STATE, null, (float)state.ordinal(), null);
         }
         this.state = state;
     }
@@ -590,7 +596,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
      * @param info
      */
     private void sendInfo(INFORMATION info) {
-        sendStatusChange(MEDIA_INFO, null, (float)info.ordinal());
+        sendStatusChange(MEDIA_INFO, null, (float)info.ordinal(), null);
     }
 
     /**
@@ -624,8 +630,8 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
         if (this.player != null) {
             this.player.setVolume(volume, volume);
         } else {
-            LOG.d(LOG_TAG, "AudioPlayer Error: Cannot set volume until the audio file is initialized.");
-            sendErrorStatus(MEDIA_ERR_NONE_ACTIVE);
+            String errorMessage = "AudioPlayer Error: Cannot set volume until the audio file is initialized.";
+            sendErrorStatus(MEDIA_ERR_NONE_ACTIVE, errorMessage);
         }
     }
 
@@ -641,8 +647,8 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
         case PLAY:
             break;
         case RECORD:
-            LOG.d(LOG_TAG, "AudioPlayer Error: Can't play in record mode.");
-            sendErrorStatus(MEDIA_ERR_ABORTED);
+            String errorMessage = "AudioPlayer Error: Can't play in record mode.";
+            sendErrorStatus(MEDIA_ERR_ABORTED, errorMessage);
             return false; //player is not ready
         }
         return true;
@@ -664,7 +670,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
                     try {
                         this.loadAudioFile(file);
                     } catch (Exception e) {
-                        sendErrorStatus(MEDIA_ERR_ABORTED);
+                        sendErrorStatus(MEDIA_ERR_ABORTED, e.getMessage());
                     }
                     return false;
                 case MEDIA_LOADING:
@@ -688,7 +694,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
                             try {
                                 this.loadAudioFile(file);
                             } catch (Exception e) {
-                                sendErrorStatus(MEDIA_ERR_ABORTED);
+                                sendErrorStatus(MEDIA_ERR_ABORTED, e.getMessage());
                             }
                             return false;//we´re not ready yet
                         }
@@ -704,14 +710,14 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
                         try {
                             this.loadAudioFile(file);
                         } catch (Exception e) {
-                            sendErrorStatus(MEDIA_ERR_ABORTED);
+                            sendErrorStatus(MEDIA_ERR_ABORTED, e.getMessage());
                         }
                         //if we had to prepare the file, we won't be in the correct state for playback
                         return false;
                     }
                 default:
-                    LOG.d(LOG_TAG, "AudioPlayer Error: startPlaying() called during invalid state: " + this.state);
-                    sendErrorStatus(MEDIA_ERR_ABORTED);
+                    String errorMessage = "AudioPlayer Error: startPlaying() called during invalid state: " + this.state;
+                    sendErrorStatus(MEDIA_ERR_ABORTED, errorMessage);
             }
         }
         return false;
@@ -748,7 +754,7 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
                     fileInputStream.close();
                 }
                 else {
-                    this.player.setDataSource(Environment.getExternalStorageDirectory().getPath() + "/" + file);
+                    this.player.setDataSource(createAudioFilePath(file));
                 }
             }
                 this.setState(STATE.MEDIA_STARTING);
@@ -760,14 +766,17 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
             }
     }
 
-    private void sendErrorStatus(int errorCode) {
-        sendStatusChange(MEDIA_ERROR, errorCode, null);
+    private void sendErrorStatus(int errorCode, String errorMessage) {
+        sendStatusChange(MEDIA_ERROR, errorCode, null, errorMessage);
     }
 
-    private void sendStatusChange(int messageType, Integer additionalCode, Float value) {
-
+    private void sendStatusChange(int messageType, Integer additionalCode, Float value, String errorMessage) {
         if (additionalCode != null && value != null) {
             throw new IllegalArgumentException("Only one of additionalCode or value can be specified, not both");
+        }
+
+        if (errorMessage != null) {
+            LOG.d(LOG_TAG, errorMessage);
         }
 
         JSONObject statusDetails = new JSONObject();
@@ -777,6 +786,11 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
             if (additionalCode != null) {
                 JSONObject code = new JSONObject();
                 code.put("code", additionalCode.intValue());
+
+                if (errorMessage != null) {
+                    code.put("message", errorMessage);
+                }
+
                 statusDetails.put("value", code);
             }
             else if (value != null) {
@@ -806,5 +820,33 @@ public class AudioPlayer implements OnCompletionListener, OnPreparedListener, On
             }
         }
         return 0;
+    }
+
+    /**
+     * Set the playback rate for the player (ignored on API < 23)
+     *
+     * @param volume
+     */
+    public void setRate(float rate) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            LOG.d(LOG_TAG, "AudioPlayer Warning: Request to set playback rate not supported on current OS version");
+            return;
+        }
+
+        if (this.player != null) {
+            try {
+                boolean wasPlaying = this.player.isPlaying();
+
+                this.player.setPlaybackParams(this.player.getPlaybackParams().setSpeed(rate));
+
+                if (!wasPlaying && this.player.isPlaying()) {
+                    this.player.pause();
+                }
+            } catch(Exception e) {
+                e.printStackTrace();
+            }
+        } else {
+            setRateOnPrepared = rate;
+        }
     }
 }
